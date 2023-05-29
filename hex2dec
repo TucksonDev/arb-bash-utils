@@ -1,0 +1,11 @@
+#!/bin/bash
+# Needs package bc
+
+if [ -z "$1" ]
+then
+    echo "Usage: hex2dec <0xabcabcabc>"
+    exit 0
+fi
+
+hex="${1#0x}"
+printf "ibase=16; %s\n" "${hex^^}" | bc

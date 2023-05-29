@@ -1,0 +1,11 @@
+#!/bin/bash
+# Needs package bc
+
+if [ -z "$1" ]
+then
+    echo "Usage: dec2hex <1234567890>"
+    exit 0
+fi
+
+dec=`printf "obase=16; %s\n" "${1}" | bc`
+echo "0x${dec,,}"

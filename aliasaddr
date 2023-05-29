@@ -1,0 +1,18 @@
+#!/bin/bash
+if [ -z "$1" ]
+then
+    echo "Usage: aliasaddr <0x1234567890abcdef>"
+    exit 0
+fi
+
+if ! [[ "$1" =~ ^(0x){1}[0-9a-fA-F]{40}$ ]]
+then
+    echo "Address $1 is not valid"
+    exit 0
+fi
+
+# Locating current script
+BASEPATH=$( dirname -- "$0"; )
+
+# Calling support js file
+node $BASEPATH/support-scripts/aliasaddr.js $1
