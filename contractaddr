@@ -1,0 +1,24 @@
+#!/bin/bash
+# Needs foundry
+
+if [ -z "$1" ] || [ -z "$2" ]
+then
+    echo "Usage: contractaddr <creator:0x1234567890abcdef> <nonce:0x01>"
+    exit 0
+fi
+
+if ! [[ "$1" =~ ^(0x){1}[0-9a-fA-F]{40}$ ]]
+then
+    echo "Address $1 is not valid"
+    exit 0
+fi
+
+# Transform nonce to hex
+hexedNonceRaw=$(cast to-hex "$2")
+hexedNonce=${hexedNonceRaw:2}
+if (( ${#hexedNonce} % 2 )); then
+  hexedNonce="0${hexedNonce}"
+fi
+
+contractAddress=$(cast keccak $(cast to-rlp "[\"$1\", \"$hexedNonce\"]") | tail -c 41)
+echo "0x$contractAddress"
