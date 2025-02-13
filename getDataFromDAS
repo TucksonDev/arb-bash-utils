@@ -1,0 +1,28 @@
+#!/bin/bash
+# Needs foundry
+# Needs awk
+
+if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]
+then
+    echo "Usage: getDataFromDAS <DAS_URL:https://...> <ParentChainRPC:https://...> <BatchTransactionHash:0x0123456789abcdef>"
+    exit 0
+fi
+
+dasURL=$1
+parentChainRPC=$2
+transactionHash=$3
+
+# Get transaction input
+TX_INPUT=$(cast tx -r $parentChainRPC $transactionHash | grep "input" | awk '{print $2}')
+
+# Decode calldata
+TX_CALLDATA=$(cast calldata-decode "addSequencerL2BatchFromOrigin(uint256 sequenceNumber,bytes data,uint256 afterDelayedMessagesRead,address gasRefunder,uint256 prevMessageCount,uint256 newMessageCount)" $TX_INPUT)
+
+# Get "data" field
+DATA=$(echo "$TX_CALLDATA" | grep -o '0x[a-fA-F0-9]\{64,\}' | head -1)
+
+# Extract DaCert
+DACERT="0x"$(echo "$DATA" | cut -c69-132)
+
+# Obtain data from DAS
+docker run --rm -it --network="host" --entrypoint datool offchainlabs/nitro-node:v3.4.0-d896e9c client rest getbyhash --url $dasURL --data-hash $DACERT

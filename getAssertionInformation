@@ -1,0 +1,149 @@
+#!/bin/bash
+# Needs foundry
+# Needs jq
+
+if [ -z "$1" ] || [ -z "$2" ]
+then
+    echo "Usage: getAssertionInformation <ParentChainRPC:https://...> <RollupContractAddress:0x0123456789abcdef> [<AssertionHash:0x0123456789abcdef>]"
+    exit 0
+fi
+
+# Constants
+blockSearchRange=1000
+# assertionCreatedEventSignature="AssertionCreated()(bytes32 assertionHash,bytes32 parentAssertionHash,((bytes32 prevPrevAssertionHash,bytes32 sequencerBatchAcc,(bytes32 wasmModuleRoot,uint256 requiredStake,address challengeManager,uint64 confirmPeriodBlocks,uint64 nextInboxPosition)),((bytes32[2],uint64[2]),uint8,bytes32),((bytes32[2],uint64[2]),uint8,bytes32)),bytes32 afterInboxBatchAcc,uint256 inboxMaxCount,bytes32 wasmModuleRoot,uint256 requiredStake,address challengeManager,uint64 confirmPeriodBlocks)"
+# assertionCreatedEventSignature="AssertionCreated()(bytes32,bytes32,((bytes32,bytes32,(bytes32,uint256,address,uint64,uint64)),((bytes32[2],uint64[2]),uint8,bytes32),((bytes32[2],uint64[2]),uint8,bytes32)),bytes32,uint256,bytes32,uint256,address,uint64)"
+assertionCreatedEventSignature="AssertionCreated()(bytes32,bytes32,bytes32,bytes32,bytes32,uint256,address,uint64,uint64,bytes32[2],uint64[2],uint8,bytes32,bytes32[2],uint64[2],uint8,bytes32,bytes32,uint256,bytes32,uint256,address,uint64)"
+assertionCreatedEventTopic=0x901c3aee23cf4478825462caaab375c606ab83516060388344f0650340753630
+
+# Variables
+parentChainRPC=$1
+rollupContractAddress=$2
+if [ -z "$3" ]
+then
+    assertionHash=$(cast call --rpc-url $parentChainRPC $rollupContractAddress "latestConfirmed()(bytes32)")
+    echo "Getting information of latest confirmed assertion hash: $assertionHash"
+else
+    assertionHash=$3
+    echo "Getting information of assertion hash: $assertionHash"
+fi
+echo ""
+
+# Get AssertionNode information
+assertionNodeJson=$(cast call --rpc-url $parentChainRPC $rollupContractAddress "getAssertion(bytes32)(uint64,uint64,uint64,bool,uint8,bytes32)" $assertionHash --json)
+
+firstChildBlock=$(echo "$assertionNodeJson"     | jq -r '.[0]')
+secondChildBlock=$(echo "$assertionNodeJson"    | jq -r '.[1]')
+createdAtBlock=$(echo "$assertionNodeJson"      | jq -r '.[2]')
+isFirstChild=$(echo "$assertionNodeJson"        | jq -r '.[3]')
+assertionStatus=$(echo "$assertionNodeJson"     | jq -r '.[4]')
+configHash=$(echo "$assertionNodeJson"          | jq -r '.[5]')
+
+echo "-------------------------"
+echo "AssertionNode information"
+echo "-------------------------"
+echo "First child block: $firstChildBlock"
+echo "Second child block: $secondChildBlock"
+echo "Created at block: $createdAtBlock"
+echo "Is first child?: $isFirstChild"
+echo "Assertion status: $assertionStatus"
+echo "Config hash: $configHash"
+echo ""
+
+# Find AssertionCreated log
+blockTo=$(cast block-number --rpc-url $parentChainRPC)
+blockFrom=$((blockTo-blockSearchRange))
+logsJson=$(cast logs --rpc-url $parentChainRPC --from-block $blockFrom --to-block $blockTo --address $rollupContractAddress --json $assertionCreatedEventTopic $assertionHash)
+logTopic0=$(echo "$logsJson" | jq -r '.[].topics[0]')
+if [ -z "$logTopic0" ]
+then
+    echo "No AssertionCreated logs were found for assertion hash $assertionHash (searched the latest $blockSearchRange blocks)"
+    exit 0
+fi
+
+logTopic1=$(echo "$logsJson" | jq -r '.[].topics[1]')
+logTopic2=$(echo "$logsJson" | jq -r '.[].topics[2]')
+logData=$(echo "$logsJson" | jq -r '.[].data')
+fullLogData=0x${logTopic1:2}${logTopic2:2}${logData:2}
+
+# Decode log information
+logDecodedJson=$(cast abi-decode --json "$assertionCreatedEventSignature" $fullLogData)
+
+# Obtain "afterState" information (bytes32 values)
+# Output has the form of [0x..., 0x...]
+# so we separate both values by substrings, since the size is always the same
+afterStateBytes32Vals=$(echo "$logDecodedJson" | jq -r '.[13]')
+lastBlockhashProcessed="${afterStateBytes32Vals:1:66}"
+lastSendRoot="${afterStateBytes32Vals:69:66}"
+
+# Obtain "afterState" information (uint64 values)
+# Output has the form of [123, 456]
+# so we separate both values using a different method (since size can be different)
+afterStateU64Vals=$(echo "$logDecodedJson" | jq -r '.[14]')
+afterStateU64Vals="${afterStateU64Vals#\[}"     # strips the first `[`
+afterStateU64Vals="${afterStateU64Vals%\]}"     # strips the last `]`
+afterStateU64Vals=(${afterStateU64Vals//,/ })   # split on comma
+
+lastBatchProcessed="${afterStateU64Vals[0]}"
+lastPositionInLastBatchProcessed="${afterStateU64Vals[1]}"
+
+echo "----------------------------------"
+echo "Assertion 'afterState' information"
+echo "----------------------------------"
+echo "Last blockhash processed: $lastBlockhashProcessed"
+echo "Last sendRoot: $lastSendRoot"
+echo "Last batch processed: $lastBatchProcessed"
+echo "Last position in last batch processed: $lastPositionInLastBatchProcessed"
+echo ""
+
+# Uncomment the following to get the full log information
+# echo "Decoded result:"
+# echo "$logDecodedJson"
+
+# Log information
+: '
+AssertionCreated(
+    bytes32 assertionHash,
+    bytes32 parentAssertionHash,
+    (                                           // assertion
+        (                                       // assertion.beforeStateData
+            bytes32 prevPrevAssertionHash,  
+            bytes32 sequencerBatchAcc,
+            (                                   // assertion.beforeStateData.configData
+                bytes32 wasmModuleRoot,
+                uint256 requiredStake,
+                address challengeManager,
+                uint64 confirmPeriodBlocks,
+                uint64 nextInboxPosition
+            )
+        ),
+        (                                       // assertion.beforeState
+            (                                   // assertion.beforeState.globalState
+                bytes32[2],
+                uint64[2]
+            ),
+            uint8 beforeStateMachineStatus,
+            bytes32 beforeStateEndHistoryRoot
+        ),
+        (                                       // assertion.afterState
+            (                                   // assertion.afterState.globalState
+                bytes32[2],
+                uint64[2]
+            ),
+            uint8 afterStateMachineStatus,
+            bytes32 afterStateEndHistoryRoot
+        )
+    ),
+    bytes32 afterInboxBatchAcc,
+    uint256 inboxMaxCount,
+    bytes32 wasmModuleRoot,
+    uint256 requiredStake,
+    address challengeManager,
+    uint64 confirmPeriodBlocks
+)
+
+// GlobalState information
+// bytes32Vals[0]: last blockhash processed for this Assertion
+// bytes32Vals[1]: sendRoot as of last block processed
+// u64Vals[0]: inbox position as of last block processed (sequencerMessageCount or, basically, batch number)
+// u64Vals[1]: last position in the last message processed (basically, message inside the batch)
+'
