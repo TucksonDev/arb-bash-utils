@@ -1,0 +1,51 @@
+#!/bin/bash
+
+# Show help
+help() {
+	echo "Usage: $0 -r <rpc_url> <contract_address>"
+	exit 1
+}
+
+format_address() {
+	bytes=$1
+	# strip the "0x"
+	hex="${bytes#0x}"
+
+	# grab from character 24 (0-based) to the end → last 40 hex-chars (20 bytes)
+	address="0x${hex:24}"
+
+	# return the result
+	echo "$address"
+}
+
+# Parse options
+while getopts 'r:' option; do
+	case "$option" in
+		r) RPC_URL="$OPTARG" ;;
+		*) help ;;
+	esac
+done
+
+# Shift off the options we just parsed
+shift $((OPTIND - 1))
+
+# Now the first remaining argument is the contract address
+if [ $# -ne 1 ]; then
+	help
+fi
+CONTRACT_ADDRESS="$1"
+
+# Final verification of arguments
+if [ -z "$RPC_URL" ] || [ -z "$CONTRACT_ADDRESS" ]; then
+  help
+fi
+
+admin=$(format_address $(cast storage --rpc-url $RPC_URL $CONTRACT_ADDRESS 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103))
+implementation=$(format_address $(cast storage --rpc-url $RPC_URL $CONTRACT_ADDRESS 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc))
+beacon=$(format_address $(cast storage --rpc-url $RPC_URL $CONTRACT_ADDRESS 0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50))
+rollback=$(format_address $(cast storage --rpc-url $RPC_URL $CONTRACT_ADDRESS 0x4910fdfa16fed3260ed0e7147f7cc6da11a60208b5b9406d12a635614ffd9143))
+
+echo "Admin: $admin"
+echo "Implementation: $implementation"
+echo "Beacon: $beacon"
+echo "Rollback: $rollback"

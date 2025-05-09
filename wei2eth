@@ -1,0 +1,15 @@
+#!/bin/bash
+
+if [ -z "$1" ]
+then
+    echo "Usage: wei2eth <1234567890>"
+    exit 0
+fi
+
+WEI=$1
+GWEI=$(cast to-unit $WEI gwei)
+ETH=$(cast to-unit $WEI ether)
+
+echo "Wei: $WEI"
+echo "Gwei: $GWEI"
+echo "ETH: $ETH"
